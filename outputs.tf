@@ -10,26 +10,26 @@ output "sftp_endpoint" {
 
 }
 
-output "local_user_sids" {
-
-  description = "SID assigned to each SFTP local user (used in POSIX ACLs)."
-
-  value       = { for k, v in azurerm_storage_account_local_user.this : k => v.sid }
-  sensitive   = true
-}
-
 output "local_user_ids" {
 
-  description = "id assigned to each SFTP local user (used in POSIX ACLs)."
+  description = "id assigned to each SFTP local user, keyed by sequence_number (0 = inbound, 1 = outbound)."
 
-  value       = { for k, v in azurerm_storage_account_local_user.this : k => v.id }
-  sensitive   = true
+  value     = module.sftp_local_users.local_user_ids
+  sensitive = true
 }
 
 output "local_user_names" {
 
-  description = "name assigned to each SFTP local user (used in POSIX ACLs)."
+  description = "login name assigned to each SFTP local user (\"sftpuser<sequence_number>\"), keyed by sequence_number."
 
-  value       = { for k, v in azurerm_storage_account_local_user.this : k => v.name }
-  sensitive   = true
+  value     = module.sftp_local_users.local_user_names
+  sensitive = true
+}
+
+output "filesystem_ids" {
+
+  description = "Data Lake Gen2 filesystem (container) resource ID, keyed by container name."
+
+  value = module.adls_filesystem.filesystem_ids
+
 }

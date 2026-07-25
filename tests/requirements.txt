@@ -1,0 +1,5 @@
+azure-storage-file-datalake>=12.14.0
+azure-identity>=1.16.0
+paramiko>=3.0.0
+pytest>=8.0.0
+pytest-md-report>=0.6.2

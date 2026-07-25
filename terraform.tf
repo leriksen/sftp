@@ -31,12 +31,12 @@ terraform {
     path = "./terraform.tfstate"
   }
 
-#  backend "remote" {
-#    organization = "leif-lab3"
-#    hostname     = "app.terraform.io"
-#
-#    workspaces {
-#      prefix = "sftp-"
-#    }
-#  }
+  #  backend "remote" {
+  #    organization = "leif-lab3"
+  #    hostname     = "app.terraform.io"
+  #
+  #    workspaces {
+  #      prefix = "sftp-"
+  #    }
+  #  }
 }
