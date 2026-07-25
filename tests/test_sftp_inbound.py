@@ -2,27 +2,29 @@
 inbound SFTP permission tests.
 
 Home:        inbound/dev01
-Control-plane permission_scope: List only, on the inbound container.
-Data-plane ACL: other::-wx on dev01 (access + default) -- write+execute, no read.
-Root ACL:    inbound/ -> other::--- (EXPERIMENTAL full deny, see main.tf).
+Control-plane permission_scope: none -- ACL permission to the home directory
+             alone is sufficient to connect (see main.tf).
+Data-plane ACL: dev01 access = other::rwx + user::rwx (unnamed owner entry);
+             default = other::-wx + user::-wx. inbound becomes the owner of
+             whatever it creates (Azure assigns owner: "lu-<userId>" to new
+             SFTP uploads), so both entries matter -- see the note on
+             module.adls_filesystem in main.tf.
+Root ACL:    inbound/ -> other::--x (traverse-only; other::--- was tried and
+             confirmed to break every ACL-gated operation in the container).
 
-Net effect (assuming the root ACL experiment doesn't break login/traversal
-entirely -- see test_can_connect_and_reach_home below): the inbound user can
-list its home dir (via permission_scope, not the ACL), create files/dirs
-there (via the ACL's write+execute), but cannot read content back, delete
-anything, or reach notsftp / the outbound container.
+Net effect: the inbound user can list its home dir, create files/dirs there,
+and delete anything within its own home dir (POSIX bundles "create" and
+"delete" into the directory's `w` bit -- there's no way to grant create-only
+without also allowing delete), but cannot read content back, and cannot
+reach notsftp / the outbound container.
 """
 import io
+import uuid
+
 from conftest import assert_sftp_denied, HOME_DIR, INBOUND_CONTAINER, OUTBOUND_CONTAINER
 
 
-# ── Root-ACL experiment ──────────────────────────────────────────────────────
-
 def test_can_connect_and_reach_home(sftp_inbound_client):
-    """If other::--- at the container root breaks the execute-to-traverse
-    chain, this is where it shows up: Azure denies before the user can even
-    list its own home directory. See the EXPERIMENTAL note on
-    azurerm_storage_data_lake_gen2_path.root in main.tf."""
     entries = sftp_inbound_client.listdir(".")
     assert isinstance(entries, list)
 
@@ -50,16 +52,21 @@ def test_create_subdir(sftp_inbound_client, sftp_inbound_artifacts, admin_client
     assert fs.get_directory_client(f"{HOME_DIR}/{rel}").exists()
 
 
-# ── ALLOW: list (via container permission_scope, not the ACL) ───────────────
+# ── ALLOW: list the home dir itself (via the ACL's `r`, not permission_scope) ─
 
 def test_list_home_dir(sftp_inbound_client):
     entries = sftp_inbound_client.listdir(".")
     assert isinstance(entries, list)
 
 
-def test_list_scratch_dir(sftp_inbound_client, sftp_inbound_artifacts):
-    entries = sftp_inbound_client.listdir(sftp_inbound_artifacts["scratch_dir"])
-    assert "seed.txt" in entries
+# ── DENY: list into subdirectories it creates -- only the home dir itself
+#          (dev01's access ACE) has `r`; anything created within inherits
+#          the default ACE (-wx, no `r`), consistent with the "push/write
+#          only, no readback" semantics applying uniformly to both file
+#          content and nested directory listings. ────────────────────────────
+
+def test_cannot_list_scratch_dir(sftp_inbound_client, sftp_inbound_artifacts):
+    assert_sftp_denied(lambda: sftp_inbound_client.listdir(sftp_inbound_artifacts["scratch_dir"]))
 
 
 # ── DENY: read content (ACL grants write+execute only, no read) ─────────────
@@ -69,14 +76,27 @@ def test_cannot_read_own_file(sftp_inbound_client, sftp_inbound_artifacts):
     assert_sftp_denied(lambda: sftp_inbound_client.getfo(sftp_inbound_artifacts["seed_file"], buf))
 
 
-# ── DENY: delete (no delete anywhere in scope) ───────────────────────────────
+# ── ALLOW: delete within its own home dir ────────────────────────────────────
+# POSIX bundles "create" and "delete" into the same directory `w` bit -- there
+# is no ACL-level way to grant inbound create-only without also allowing it
+# to delete anything within dev01. This is the scheme's actual, expected
+# shape, not a gap (confirmed via a live test run against dev01's other::rwx
+# access ACE).
 
-def test_cannot_delete_file(sftp_inbound_client, sftp_inbound_artifacts):
-    assert_sftp_denied(lambda: sftp_inbound_client.remove(sftp_inbound_artifacts["seed_file"]))
+def test_can_delete_own_file(sftp_inbound_client, admin_client):
+    rel = f"delete-probe-{uuid.uuid4().hex[:8]}.txt"
+    sftp_inbound_client.putfo(io.BytesIO(b"x"), rel, confirm=False)
+    sftp_inbound_client.remove(rel)
+    fs = admin_client.get_file_system_client(INBOUND_CONTAINER)
+    assert not fs.get_file_client(f"{HOME_DIR}/{rel}").exists()
 
 
-def test_cannot_delete_dir(sftp_inbound_client, sftp_inbound_artifacts):
-    assert_sftp_denied(lambda: sftp_inbound_client.rmdir(sftp_inbound_artifacts["scratch_dir"]))
+def test_can_delete_own_dir(sftp_inbound_client, admin_client):
+    rel = f"delete-probe-dir-{uuid.uuid4().hex[:8]}"
+    sftp_inbound_client.mkdir(rel)
+    sftp_inbound_client.rmdir(rel)
+    fs = admin_client.get_file_system_client(INBOUND_CONTAINER)
+    assert not fs.get_directory_client(f"{HOME_DIR}/{rel}").exists()
 
 
 # ── DENY: reach notsftp ──────────────────────────────────────────────────────

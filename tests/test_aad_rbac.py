@@ -1,12 +1,20 @@
 """
-AAD/RBAC access tests -- proves Storage Blob Data Reader granted to the
-ADLS_Reader AAD group (azurerm_role_assignment.aad_reader in main.tf, object
-ID reused from the sibling adls project) works as an access path entirely
-independent of the SFTP local-user ACL scheme exercised in test_sftp_*.py
-and test_notsftp_denied.py. Per Microsoft's own docs, local users do not
-interoperate with RBAC -- this suite verifies that's actually true here, not
-assumed.
+AAD/RBAC access tests -- proves Storage Blob Data Reader / Contributor
+granted to the ADLS_Reader / ADLS_Write AAD groups (azurerm_role_assignment.
+aad_reader / aad_writer in main.tf, object IDs reused from the sibling adls
+project) work as access paths entirely independent of the SFTP local-user
+ACL scheme exercised in test_sftp_*.py and test_notsftp_denied.py. Per
+Microsoft's own docs, local users do not interoperate with RBAC -- this
+suite verifies that's actually true here, not assumed.
+
+Both role assignments were verified empirically before being added: the
+reader group's test SP already had working read access (so aad_reader
+predates this suite); the writer group's test SP had zero access (403
+AuthorizationPermissionMismatch) until azurerm_role_assignment.aad_writer
+was added.
 """
+import uuid
+
 import pytest
 from conftest import assert_denied, INBOUND_CONTAINER, OUTBOUND_CONTAINER
 
@@ -50,3 +58,32 @@ def test_cannot_delete(aad_reader_client):
         "dev01/sample/report.csv"
     )
     assert_denied(fc.delete_file)
+
+
+# ── writer (Storage Blob Data Contributor via ADLS_Write): allow r/w/d ───────
+
+@pytest.mark.parametrize("container", [INBOUND_CONTAINER, OUTBOUND_CONTAINER])
+def test_writer_can_list_container_root(aad_writer_client, container):
+    paths = list(aad_writer_client.get_file_system_client(container).get_paths(path=""))
+    assert isinstance(paths, list)
+
+
+def test_writer_can_write_read_and_delete(aad_writer_client):
+    rel = f"dev01/sample/rbac-writer-probe-{uuid.uuid4().hex[:8]}.txt"
+    fc = aad_writer_client.get_file_system_client(OUTBOUND_CONTAINER).get_file_client(rel)
+
+    fc.upload_data(b"written via aad_writer_client", overwrite=True)
+    assert fc.download_file().readall() == b"written via aad_writer_client"
+
+    fc.delete_file()
+    assert not fc.exists()
+
+
+def test_writer_can_read_notsftp_via_rbac(aad_writer_client):
+    """Same independence proof as test_can_read_notsftp_via_rbac, from the
+    writer side: the notsftp deny ACLs target SFTP local users, not RBAC
+    principals."""
+    fc = aad_writer_client.get_file_system_client(INBOUND_CONTAINER).get_file_client(
+        "notsftp/secret.txt"
+    )
+    assert fc.download_file().readall() == b"not for sftp users\n"

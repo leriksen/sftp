@@ -52,6 +52,19 @@ def aad_reader_client():
     )
 
 
+@pytest.fixture(scope="session")
+def aad_writer_client():
+    """Client-credential SP standing in for the ADLS_Write AAD group
+    (azurerm_role_assignment.aad_writer in main.tf), reused from the
+    sibling adls project. Verified empirically before the role assignment
+    was added: this SP had zero access (403 AuthorizationPermissionMismatch)
+    against this storage account."""
+    return _client(
+        os.environ["AAD_WRITER_CLIENT_ID"],
+        os.environ["AAD_WRITER_CLIENT_SECRET"],
+    )
+
+
 def assert_denied(fn):
     with pytest.raises(HttpResponseError) as exc_info:
         fn()
@@ -75,8 +88,11 @@ def _sftp_connect(username, key_file):
 
 @pytest.fixture(scope="session")
 def sftp_inbound_client():
+    # Local user is literally named "sftpuser0" (terraform-azurerm-sftp-local-users
+    # names by sequence_number, not a custom string) -- inbound/outbound is
+    # carried by home_directory, not the login name. See main.tf/variables.tf.
     sftp, ssh = _sftp_connect(
-        f"{STORAGE_ACCOUNT}.inbound",
+        f"{STORAGE_ACCOUNT}.sftpuser0",
         os.environ["SFTP_INBOUND_KEY_FILE"],
     )
     yield sftp
@@ -87,7 +103,7 @@ def sftp_inbound_client():
 @pytest.fixture(scope="session")
 def sftp_outbound_client():
     sftp, ssh = _sftp_connect(
-        f"{STORAGE_ACCOUNT}.outbound",
+        f"{STORAGE_ACCOUNT}.sftpuser1",
         os.environ["SFTP_OUTBOUND_KEY_FILE"],
     )
     yield sftp

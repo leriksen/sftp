@@ -13,10 +13,14 @@ resource "azurerm_storage_account" "this" {
 # ---------------------------------------------------------------------------
 # RBAC: the Terraform executor needs data-plane rights for module.adls_filesystem
 # below (storage_use_azuread = true routes those calls through AAD, not a
-# shared key). Also grants a real AAD group ("ADLS_Reader", reused from the
-# adls project) Storage Blob Data Reader, so tests can prove RBAC-based access
-# works independently of — and isn't affected by — the SFTP local-user ACL
-# scheme (local users do not interoperate with RBAC).
+# shared key). Also grants two real AAD groups (reused from the adls project:
+# "ADLS_Reader" / "ADLS_Write") Storage Blob Data Reader / Contributor, so
+# tests can prove RBAC-based access works independently of — and isn't
+# affected by — the SFTP local-user ACL scheme (local users do not
+# interoperate with RBAC). Verified empirically before adding: the reader
+# group's test SP already had working read access via ADLS_Reader; the
+# writer group's test SP had none (403 AuthorizationPermissionMismatch)
+# until this aad_writer assignment was added.
 # ---------------------------------------------------------------------------
 
 data "azurerm_client_config" "current" {}
@@ -34,10 +38,18 @@ resource "azurerm_role_assignment" "aad_reader" {
   principal_type       = "Group"
 }
 
+resource "azurerm_role_assignment" "aad_writer" {
+  scope                = azurerm_storage_account.this.id
+  role_definition_name = "Storage Blob Data Contributor"
+  principal_id         = var.aad_writer_object_id
+  principal_type       = "Group"
+}
+
 resource "time_sleep" "rbac_wait" {
   depends_on = [
     azurerm_role_assignment.tf_executor_blob_owner,
     azurerm_role_assignment.aad_reader,
+    azurerm_role_assignment.aad_writer,
   ]
   create_duration = "30s"
 }
@@ -82,31 +94,52 @@ module "adls_filesystem" {
   containers = [
     for c in var.containers : {
       container_name = c
-      # EXPERIMENTAL: other::--- is a full deny, not the traversal-safe
-      # other::--x Microsoft's docs recommend ("Give Other the Execute
-      # permission ... needed to traverse the root directory"). This may
-      # break the SFTP user's own login/traversal into dev01 — tests/
-      # exists partly to observe what actually happens. If it does break,
-      # the fallback is other::--x (traverse-only, still no listing/reading
-      # of root itself).
+      # other::--x is traverse-only: no listing/reading of root's own
+      # entries, but execute is present so the ACL evaluation chain isn't
+      # broken. EXPERIMENTALLY CONFIRMED other::--- (full deny) breaks this:
+      # Microsoft's docs require execute on "the root folder of the
+      # container, and to each folder in the hierarchy" for ANY ACL-gated
+      # read/write to succeed, not just for reaching dev01 — with --- there,
+      # every ACL-gated operation in the whole container failed with
+      # AuthorizationPermissionMismatch, confirmed via a live test run.
       acl = [
-        { scope = "access", id = null, type = "other", permissions = "---" },
+        { scope = "access", id = null, type = "other", permissions = "--x" },
       ]
     }
   ]
 
   paths = concat(
-    # dev01 — each user's home directory. access ACE grants the read-or-write
-    # right that user actually needs; default ACE propagates the same to
-    # anything created under it later (relevant for the outbound sample
-    # fixtures below, and for whatever the inbound user uploads at runtime).
+    # dev01 — each user's home directory. access ACE governs the directory
+    # node itself (its "list contents" and "traverse" bits); default ACE is
+    # what new children (files the user uploads, or the outbound sample
+    # fixtures below) inherit as their own access ACL at creation. These
+    # differ for inbound: it needs the access ACE's `r` to list its own home
+    # dir (list is intentionally NOT granted via permission_scopes below --
+    # container-level permissions apply account-wide across the whole
+    # container per Microsoft's docs, which would also unlock listing
+    # notsftp; confirmed via a live test run: granting `list` at
+    # permission_scopes let both users list/enter notsftp despite its deny
+    # ACL, since sufficient container-level permission skips ACL evaluation
+    # entirely), but its uploaded files should stay unreadable by inbound
+    # itself, hence default ACE omits `r`.
+    #
+    # Both `other` AND the unnamed `user` (owner placeholder, NOT a named-user
+    # ACE -- id stays null) entries are set to the same rights. Confirmed via
+    # a live probe: when a local user creates a file, Azure makes it the
+    # file's owner (owner: "lu-<userId>"), and the new file's owner
+    # permission bits come from the parent's default:user:: entry -- which
+    # defaults to a permissive rwx if left untouched, letting inbound read
+    # back files it just wrote regardless of the default:other restriction.
+    # Setting default:user:: to match closes that gap.
     [
       for uname, u in var.sftp_users : {
         container_name = u.container
         path_name      = "dev01"
         acl = [
-          { scope = "access", id = null, type = "other", permissions = u.home_rights },
-          { scope = "default", id = null, type = "other", permissions = u.home_rights },
+          { scope = "access", id = null, type = "other", permissions = u.home_dir_rights },
+          { scope = "access", id = null, type = "user", permissions = u.home_dir_rights },
+          { scope = "default", id = null, type = "other", permissions = u.home_default_rights },
+          { scope = "default", id = null, type = "user", permissions = u.home_default_rights },
         ]
       }
     ],
@@ -163,9 +196,15 @@ module "adls_filesystem" {
 # aren't settable — the module names local users "sftpuser<sequence_number>"
 # — so the inbound/outbound intent lives in home_directory instead of the
 # login name (same convention the sibling adls project already uses).
-# Control-plane permission_scope is List only; the actual read-or-write
-# grant for each user's home directory comes from the "other" ACE set by
-# module.adls_filesystem above.
+#
+# No container-level permission_scopes at all: Microsoft's docs guarantee a
+# connection succeeds as long as the user has ACL permission to their home
+# directory ("the local user must have at least one container permission OR
+# ACL permission to the home directory ... otherwise the connection
+# fails") — which module.adls_filesystem's dev01 ACL above provides. Any
+# container-level grant (even just List) applies account-wide across the
+# whole container and would bypass the notsftp deny ACL entirely, per the
+# live-test finding above.
 # ---------------------------------------------------------------------------
 
 module "sftp_local_users" {
@@ -179,9 +218,7 @@ module "sftp_local_users" {
       sequence_number         = u.sequence_number
       home_directory          = "${u.container}/dev01"
       allow_acl_authorization = true
-      permission_scopes = [
-        { target_container = u.container, permissions = ["List"] }
-      ]
+      permission_scopes       = []
       ssh_authorized_keys = u.ssh_key != null ? [
         { key = u.ssh_key, description = "${uname}-key" }
       ] : []

@@ -13,6 +13,9 @@ export AZURE_TENANT_ID="$(cat "${_REPO_ROOT}/.tenant_id")"
 export AAD_READER_CLIENT_ID="$(cat "${_TESTS_DIR}/.aad_reader_client_id")"
 export AAD_READER_CLIENT_SECRET="$(cat "${_TESTS_DIR}/.aad_reader_client_secret")"
 
+export AAD_WRITER_CLIENT_ID="$(cat "${_TESTS_DIR}/.aad_writer_client_id")"
+export AAD_WRITER_CLIENT_SECRET="$(cat "${_TESTS_DIR}/.aad_writer_client_secret")"
+
 export SFTP_STORAGE_ACCOUNT="stsftpdemo0721"
 
 export SFTP_INBOUND_KEY_FILE="${_REPO_ROOT}/.sftp_inbound_key"
