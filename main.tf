@@ -86,8 +86,7 @@ locals {
 }
 
 module "adls_filesystem" {
-  source  = "app.terraform.io/leif-lab3/terraform-azurerm-adls-filesystem/azurerm"
-  version = "0.2.1"
+  source = "./modules/adls"
 
   storage_account_id = azurerm_storage_account.this.id
 
@@ -208,8 +207,7 @@ module "adls_filesystem" {
 # ---------------------------------------------------------------------------
 
 module "sftp_local_users" {
-  source  = "app.terraform.io/leif-lab3/terraform-azurerm-sftp-local-users/azurerm"
-  version = "0.1.0"
+  source = "./modules/sftp"
 
   storage_account_id = azurerm_storage_account.this.id
 
