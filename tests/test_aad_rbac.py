@@ -16,7 +16,7 @@ was added.
 import uuid
 
 import pytest
-from conftest import assert_denied, INBOUND_CONTAINER, OUTBOUND_CONTAINER
+from conftest import assert_denied, INBOUND_CONTAINER, OUTBOUND_CONTAINER, _log_created, _log_deleted
 
 
 # ── ALLOW: read across both containers, unaffected by the SFTP ACL scheme ───
@@ -73,9 +73,11 @@ def test_writer_can_write_read_and_delete(aad_writer_client):
     fc = aad_writer_client.get_file_system_client(OUTBOUND_CONTAINER).get_file_client(rel)
 
     fc.upload_data(b"written via aad_writer_client", overwrite=True)
+    _log_created(OUTBOUND_CONTAINER, "file", rel)
     assert fc.download_file().readall() == b"written via aad_writer_client"
 
     fc.delete_file()
+    _log_deleted(OUTBOUND_CONTAINER, "file", rel)
     assert not fc.exists()
 
 

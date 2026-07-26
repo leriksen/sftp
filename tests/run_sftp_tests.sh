@@ -5,9 +5,11 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 VENV="$REPO_ROOT/tests/.venv"
 
 COLOR="yes"
+SWEEP="yes"
 for arg in "$@"; do
   case "$arg" in
     --color=*) COLOR="${arg#*=}" ;;
+    --sweep=*) SWEEP="${arg#*=}" ;;
   esac
 done
 
@@ -23,9 +25,21 @@ pip install -q -r "$REPO_ROOT/tests/requirements.txt"
 
 REPORT="$REPO_ROOT/tests/report_sftp.md"
 
+PYTEST_EXIT=0
 pytest "$REPO_ROOT/tests/test_sftp_inbound.py" "$REPO_ROOT/tests/test_sftp_outbound.py" "$REPO_ROOT/tests/test_notsftp_denied.py" -v --color="$COLOR" \
   --md-report \
   --md-report-output="$REPORT" \
-  --md-report-verbose=1
+  --md-report-verbose=1 \
+  --junitxml="$REPO_ROOT/tests/report_sftp.xml" \
+  --html="$REPO_ROOT/tests/report_sftp.html" --self-contained-html || PYTEST_EXIT=$?
 
 cat "$REPORT"
+
+# --sweep=no when run under run_tests.sh: the AAD and SFTP suites run
+# concurrently there, and sweeping here could delete the sibling suite's
+# still-in-flight artifacts (see conftest.sweep_leftover_artifacts).
+if [[ "$SWEEP" == "yes" ]]; then
+  python3 "$REPO_ROOT/tests/sweep_artifacts.py"
+fi
+
+exit "$PYTEST_EXIT"

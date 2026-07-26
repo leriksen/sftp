@@ -21,7 +21,7 @@ reach notsftp / the outbound container.
 import io
 import uuid
 
-from conftest import assert_sftp_denied, HOME_DIR, INBOUND_CONTAINER, OUTBOUND_CONTAINER
+from conftest import assert_sftp_denied, HOME_DIR, INBOUND_CONTAINER, OUTBOUND_CONTAINER, _log_created, _log_deleted
 
 
 def test_can_connect_and_reach_home(sftp_inbound_client):
@@ -86,7 +86,9 @@ def test_cannot_read_own_file(sftp_inbound_client, sftp_inbound_artifacts):
 def test_can_delete_own_file(sftp_inbound_client, admin_client):
     rel = f"delete-probe-{uuid.uuid4().hex[:8]}.txt"
     sftp_inbound_client.putfo(io.BytesIO(b"x"), rel, confirm=False)
+    _log_created(INBOUND_CONTAINER, "file", f"{HOME_DIR}/{rel}")
     sftp_inbound_client.remove(rel)
+    _log_deleted(INBOUND_CONTAINER, "file", f"{HOME_DIR}/{rel}")
     fs = admin_client.get_file_system_client(INBOUND_CONTAINER)
     assert not fs.get_file_client(f"{HOME_DIR}/{rel}").exists()
 
@@ -94,7 +96,9 @@ def test_can_delete_own_file(sftp_inbound_client, admin_client):
 def test_can_delete_own_dir(sftp_inbound_client, admin_client):
     rel = f"delete-probe-dir-{uuid.uuid4().hex[:8]}"
     sftp_inbound_client.mkdir(rel)
+    _log_created(INBOUND_CONTAINER, "dir", f"{HOME_DIR}/{rel}")
     sftp_inbound_client.rmdir(rel)
+    _log_deleted(INBOUND_CONTAINER, "dir", f"{HOME_DIR}/{rel}")
     fs = admin_client.get_file_system_client(INBOUND_CONTAINER)
     assert not fs.get_directory_client(f"{HOME_DIR}/{rel}").exists()
 
