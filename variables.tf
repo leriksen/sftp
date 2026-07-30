@@ -10,17 +10,6 @@ variable "location" {
   description = "Azure region."
 }
 
-variable "storage_account_name" {
-  type        = string
-  description = <<-EOT
-    Name of the existing storage account to adopt. Passed through as
-    module.storage_account's `name` override (a local fork of the upstream
-    terraform-azurerm-storage-account module — see modules/storage-account/README.md)
-    so the account keeps this name instead of falling back to the upstream
-    naming convention "<resource_group_name>dl<sequence_no>".
-  EOT
-}
-
 variable "containers" {
   type        = list(string)
   description = "ADLS Gen2 filesystem (container) names to create."
@@ -66,7 +55,7 @@ variable "sftp_users" {
 variable "storage_account_sequence_no" {
   type        = string
   default     = "01"
-  description = "Only used to name module.storage_account's user-assigned identity (\"tftest-umi-<sequence_no>\") — the storage account name itself is set explicitly via storage_account_name above, not derived from this."
+  description = "Numeric suffix for both the storage account name (\"<resource_group_name>dl<sequence_no>\") and its user-assigned identity name (\"tftest-umi-<sequence_no>\"), per the published storage-account module's naming convention — it has no name override, so changing this (or resource_group_name) after the initial apply forces the storage account to be recreated (name is ForceNew)."
 }
 
 # Object IDs of the AAD groups used to prove RBAC-based data-plane access

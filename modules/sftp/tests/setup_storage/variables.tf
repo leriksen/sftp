@@ -6,7 +6,7 @@ variable "location" {
   type = string
 }
 
-variable "name" {
+variable "sequence_no" {
   type = string
 }
 

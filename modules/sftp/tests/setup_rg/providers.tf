@@ -1,11 +1,4 @@
 terraform {
-  cloud {
-    organization = "leif-lab3"
-    workspaces {
-      name = "tftest"
-    }
-  }
-
   required_providers {
     azurerm = {
       source  = "hashicorp/azurerm"

@@ -1,24 +1,23 @@
 # ---------------------------------------------------------------------------
-# Storage account
-#
-# Vendored from github.com/leriksen/terraform-azurerm-storage-account (also
-# published to the private registry at app.terraform.io/leif-lab3) rather than
-# sourced from the registry directly — see modules/storage-account/README.md.
-# This local fork adds a `name` variable (default null, not present upstream)
-# because the upstream module's default naming convention
-# ("<resource_group_name>dl<sequence_no>") doesn't match this storage
-# account's existing real name, and `name` is ForceNew: pointing at the
-# published module (as module.adls_filesystem and module.sftp_local_users do
-# below) would force a replace of the real storage account.
+# Storage account, via the published terraform-azurerm-storage-account module
+# (github.com/leriksen/terraform-azurerm-storage-account) — sourced from the
+# private registry at app.terraform.io/leif-lab3, same as module.adls_filesystem
+# and module.sftp_local_users below. Formerly vendored locally at
+# ./modules/storage-account (still present for its own standalone tests) because
+# the published module has no `name` override and this account's real name
+# ("stsftpdemo0721") didn't match the upstream "<resource_group_name>dl<sequence_no>"
+# convention. Porting to the published module means Terraform will destroy and
+# recreate the storage account under that convention name (name is ForceNew) —
+# accepted as a one-time rename.
 # ---------------------------------------------------------------------------
 module "storage_account" {
-  source = "./modules/storage-account"
+  source  = "app.terraform.io/leif-lab3/terraform-azurerm-storage-account/azurerm"
+  version = "0.5.1"
 
-  name                = var.storage_account_name
   resource_group_name = var.resource_group_name
   location            = var.location
   sequence_no         = var.storage_account_sequence_no
-  sftp_enabled        = true
+  sftp_enabled        = length(var.sftp_users) > 0
 }
 
 # Preserves the existing storage account's state entry across the move from a

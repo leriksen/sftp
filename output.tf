@@ -1,14 +1,17 @@
 output "storage_account_id" {
 
-  value = azurerm_storage_account.this.id
+  value = module.storage_account.id
 
 }
 
-output "sftp_endpoint" {
+#output "sftp_endpoint" {
 
-  value = "${var.storage_account_name}.blob.core.windows.net"
+  # The published storage-account module has no name output, and no name
+  # override, so the account name is pulled back out of its resource ID
+  # ("…/storageAccounts/<name>") rather than threaded through as a variable.
+#  value = "${regex("storageAccounts/([^/]+)$", module.storage_account.id)}.blob.core.windows.net"
 
-}
+#}
 
 output "local_user_ids" {
 

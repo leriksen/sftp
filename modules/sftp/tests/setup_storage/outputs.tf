@@ -1,5 +1,5 @@
 output "storage_account_id" {
-  value = azurerm_storage_account.this.id
+  value = module.storage_account.id
 }
 
 output "container_name" {

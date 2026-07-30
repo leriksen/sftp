@@ -9,7 +9,7 @@ from azure.identity import ClientSecretCredential
 from azure.storage.filedatalake import DataLakeFileClient, DataLakeServiceClient
 
 TENANT_ID       = os.environ["AZURE_TENANT_ID"]
-STORAGE_ACCOUNT = os.environ.get("SFTP_STORAGE_ACCOUNT", "stsftpdemo0721")
+STORAGE_ACCOUNT = os.environ["SFTP_STORAGE_ACCOUNT"]
 ACCOUNT_URL     = f"https://{STORAGE_ACCOUNT}.dfs.core.windows.net"
 SFTP_HOST       = f"{STORAGE_ACCOUNT}.blob.core.windows.net"
 
