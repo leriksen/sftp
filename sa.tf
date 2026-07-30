@@ -3,12 +3,13 @@
 # (github.com/leriksen/terraform-azurerm-storage-account) — sourced from the
 # private registry at app.terraform.io/leif-lab3, same as module.adls_filesystem
 # and module.sftp_local_users below. Formerly vendored locally at
-# ./modules/storage-account (still present for its own standalone tests) because
-# the published module has no `name` override and this account's real name
-# ("stsftpdemo0721") didn't match the upstream "<resource_group_name>dl<sequence_no>"
-# convention. Porting to the published module means Terraform will destroy and
-# recreate the storage account under that convention name (name is ForceNew) —
-# accepted as a one-time rename.
+# ./modules/storage-account because the published module has no `name`
+# override and this account's real name ("stsftpdemo0721") didn't match the
+# upstream "<resource_group_name>dl<sequence_no>" convention. Porting to the
+# published module means Terraform will destroy and recreate the storage
+# account under that convention name (name is ForceNew) — accepted as a
+# one-time rename. The local fork (a stale copy, not the module's actual
+# source) was deleted once nothing referenced it.
 # ---------------------------------------------------------------------------
 module "storage_account" {
   source  = "app.terraform.io/leif-lab3/terraform-azurerm-storage-account/azurerm"
