@@ -11,7 +11,7 @@
 # ---------------------------------------------------------------------------
 
 resource "azurerm_storage_blob" "notsftp_secret" {
-  for_each = toset(var.containers)
+  for_each = local.all_container_names
 
   name                 = "notsftp/secret.txt"
   storage_container_id = local.container_arm_ids[each.value]
@@ -22,7 +22,7 @@ resource "azurerm_storage_blob" "notsftp_secret" {
 }
 
 resource "azurerm_storage_blob" "notsftp_private_data" {
-  for_each = toset(var.containers)
+  for_each = local.all_container_names
 
   name                 = "notsftp/private/data.txt"
   storage_container_id = local.container_arm_ids[each.value]
