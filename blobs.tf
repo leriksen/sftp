@@ -8,13 +8,18 @@
 # (".../blobServices/default/containers/<name>"), not the DFS URL that
 # module.adls_filesystem.filesystem_ids returns (the ADLS Gen2 filesystem
 # resource's own .id) — see local.container_arm_ids in locals.tf.
+#
+# Every for_each here is keyed "<sa_key>::<container_name>", so both storage
+# accounts get an identical fixture set: account "01" (SFTP local users) and
+# account "02" (Entra principals) differ only in how access to these same
+# bytes is authorized, which is what makes the two directly comparable.
 # ---------------------------------------------------------------------------
 
 resource "azurerm_storage_blob" "notsftp_secret" {
-  for_each = local.all_container_names
+  for_each = local.all_containers
 
   name                 = "notsftp/secret.txt"
-  storage_container_id = local.container_arm_ids[each.value]
+  storage_container_id = local.container_arm_ids[each.key]
   type                 = "Block"
   source_content       = "not for sftp users\n"
 
@@ -22,10 +27,10 @@ resource "azurerm_storage_blob" "notsftp_secret" {
 }
 
 resource "azurerm_storage_blob" "notsftp_private_data" {
-  for_each = local.all_container_names
+  for_each = local.all_containers
 
   name                 = "notsftp/private/data.txt"
-  storage_container_id = local.container_arm_ids[each.value]
+  storage_container_id = local.container_arm_ids[each.key]
   type                 = "Block"
   source_content       = "not for sftp users either\n"
 
@@ -33,8 +38,10 @@ resource "azurerm_storage_blob" "notsftp_private_data" {
 }
 
 resource "azurerm_storage_blob" "outbound_sample_report" {
+  for_each = local.outbound_containers
+
   name                 = "dev01/sample/report.csv"
-  storage_container_id = local.container_arm_ids["outbound"]
+  storage_container_id = local.container_arm_ids[each.key]
   type                 = "Block"
   source_content       = "id,value\n1,42\n2,7\n"
 
@@ -42,8 +49,10 @@ resource "azurerm_storage_blob" "outbound_sample_report" {
 }
 
 resource "azurerm_storage_blob" "outbound_sample_notes" {
+  for_each = local.outbound_containers
+
   name                 = "dev01/sample/notes.txt"
-  storage_container_id = local.container_arm_ids["outbound"]
+  storage_container_id = local.container_arm_ids[each.key]
   type                 = "Block"
   source_content       = "sample outbound fixture data\n"
 
@@ -51,8 +60,10 @@ resource "azurerm_storage_blob" "outbound_sample_notes" {
 }
 
 resource "azurerm_storage_blob" "outbound_sample_nested_extra" {
+  for_each = local.outbound_containers
+
   name                 = "dev01/sample/nested/extra.txt"
-  storage_container_id = local.container_arm_ids["outbound"]
+  storage_container_id = local.container_arm_ids[each.key]
   type                 = "Block"
   source_content       = "nested fixture data\n"
 

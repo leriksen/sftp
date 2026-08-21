@@ -1,0 +1,28 @@
+# Remote runs upload this directory to TFC as a config bundle. Nothing below is
+# needed to plan or apply, and several of them are credentials -- keep them out
+# of the upload entirely.
+
+# Local state (superseded by the remote backend, and holds the Entra service
+# principal secrets in cleartext from before the migration).
+terraform.tfstate
+terraform.tfstate.*
+tfplan*
+
+# Credentials read by env-dev.sh / env-test.sh / env-entra.sh
+.client_id_*
+.key_*
+.subscription_id
+.tenant_id
+.pat
+.sftp_inbound_key
+.sftp_inbound_key.pub
+.sftp_outbound_key
+.sftp_outbound_key.pub
+
+# The pytest harness runs locally against the applied stack; TFC never needs it.
+tests/
+
+# Editor / tooling noise
+.idea/
+.claude/
+.git/

@@ -19,28 +19,84 @@ locals {
   }
 
   # ---------------------------------------------------------------------------
-  # all_container_names: every container name across all storage accounts,
-  # for blobs.tf's for_each = toset(...) fixture-blob loops.
+  # all_containers: every (storage account, container) pair, keyed
+  # "<sa_key>::<container_name>", for blobs.tf's fixture-blob loops. Keyed by
+  # the pair rather than the container name alone because both accounts use
+  # the same two container names — keying on name would collapse them and
+  # silently give only one account its fixtures.
   # ---------------------------------------------------------------------------
-  all_container_names = toset(flatten([
-    for sa in var.storage : [for c in sa.containers : c.container_name]
-  ]))
-
-  # ---------------------------------------------------------------------------
-  # container_arm_ids: classic ARM resource ID per container
-  # (".../blobServices/default/containers/<name>"), built directly since
-  # azurerm_storage_blob needs this form rather than the DFS URL that
-  # module.adls_filesystem.filesystem_ids returns. Flattened across all
-  # storage accounts so it stays correct regardless of account count.
-  # ---------------------------------------------------------------------------
-  container_arm_ids = {
+  all_containers = {
     for pair in flatten([
       for sa_key, sa in local.storage_map : [
         for c in sa.containers : {
+          key            = "${sa_key}::${c.container_name}"
+          sa_key         = sa_key
           container_name = c.container_name
-          arm_id         = "${module.storage_account[sa_key].id}/blobServices/default/containers/${c.container_name}"
         }
       ]
-    ]) : pair.container_name => pair.arm_id
+    ]) : pair.key => pair
+  }
+
+  # ---------------------------------------------------------------------------
+  # outbound_containers: the subset of the above named "outbound", for the
+  # outbound-only sample fixtures in blobs.tf.
+  # ---------------------------------------------------------------------------
+  outbound_containers = {
+    for k, v in local.all_containers : k => v if v.container_name == "outbound"
+  }
+
+  # ---------------------------------------------------------------------------
+  # resolved_storage: var.storage's containers/paths with every ACE's `id_ref`
+  # replaced by the object ID of the azuread_group entra.tf created under that
+  # key. Group object IDs aren't knowable when variables.auto.tfvars.json is
+  # authored, so tfvars references groups by key and the substitution happens
+  # here — keeping every ACL authored as data in tfvars (the convention sa.tf
+  # documents) rather than half of it in HCL.
+  #
+  # ACEs are rebuilt attribute-by-attribute so `id_ref` never reaches
+  # module.adls_filesystem, whose acl object type has no such attribute.
+  # ---------------------------------------------------------------------------
+  resolved_storage = {
+    for sa_key, sa in local.storage_map : sa_key => {
+      containers = [
+        for c in sa.containers : {
+          container_name = c.container_name
+          acl = [
+            for a in c.acl : {
+              scope       = a.scope
+              type        = a.type
+              permissions = a.permissions
+              id          = a.id_ref != null ? azuread_group.this[a.id_ref].object_id : a.id
+            }
+          ]
+        }
+      ]
+      paths = [
+        for p in sa.paths : {
+          container_name = p.container_name
+          path_name      = p.path_name
+          resource_type  = p.resource_type
+          acl = [
+            for a in p.acl : {
+              scope       = a.scope
+              type        = a.type
+              permissions = a.permissions
+              id          = a.id_ref != null ? azuread_group.this[a.id_ref].object_id : a.id
+            }
+          ]
+        }
+      ]
+    }
+  }
+
+  # ---------------------------------------------------------------------------
+  # container_arm_ids: classic ARM resource ID per (account, container), keyed
+  # "<sa_key>::<container_name>" to match local.all_containers. Built directly
+  # since azurerm_storage_blob needs this form rather than the DFS URL that
+  # module.adls_filesystem.filesystem_ids returns.
+  # ---------------------------------------------------------------------------
+  container_arm_ids = {
+    for k, v in local.all_containers :
+    k => "${module.storage_account[v.sa_key].id}/blobServices/default/containers/${v.container_name}"
   }
 }
