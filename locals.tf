@@ -6,6 +6,17 @@ locals {
   storage_map = { for sa in var.storage : sa.sequence_no => sa }
 
   # ---------------------------------------------------------------------------
+  # aad_rbac_accounts: the subset of storage_map opting into the data-plane
+  # RBAC group grants in rbac.tf, i.e. account "01" only. Account "02" must
+  # stay free of data-plane RBAC: role assignments are additive and cannot be
+  # narrowed by an ACL, so a single Reader grant there would mask every
+  # named-group ACE the Entra experiment tests.
+  # ---------------------------------------------------------------------------
+  aad_rbac_accounts = {
+    for k, sa in local.storage_map : k => sa if sa.aad_rbac_groups_enabled
+  }
+
+  # ---------------------------------------------------------------------------
   # sftp_configs: SA key → resolved sftp_users list, for SAs that have SFTP
   # enabled and at least one user defined. Values already match
   # module.sftp_local_users' `sftp_users` argument shape one-to-one, so no
@@ -57,6 +68,14 @@ locals {
       ]
     ]) : b.key => b
   }
+
+  # ---------------------------------------------------------------------------
+  # entra_groups_map: var.entra_groups list → map keyed by the caller-supplied
+  # `key`, the for_each index every azuread_* resource in entra.tf shares. That
+  # same key is what tfvars ACEs reference via `id_ref` and what
+  # local.resolved_storage resolves to an object ID below.
+  # ---------------------------------------------------------------------------
+  entra_groups_map = { for g in var.entra_groups : g.key => g }
 
   # ---------------------------------------------------------------------------
   # resolved_storage: var.storage's containers/paths with every ACE's `id_ref`

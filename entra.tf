@@ -12,7 +12,7 @@
 #
 # One group per role, one service principal in each, and deliberately NO
 # data-plane RBAC for either (contrast azurerm_role_assignment.aad_reader /
-# .aad_writer in sa.tf, which apply to account "01" only). RBAC grants are
+# .aad_writer in rbac.tf, which apply to account "01" only). RBAC grants are
 # additive and can't be narrowed by an ACL, so a single Storage Blob Data
 # Reader assignment here would mask every ACE this experiment is testing and
 # expose the notsftp tree. Group membership is therefore the only thing that
@@ -21,10 +21,6 @@
 # Requires the Terraform SP to hold Microsoft Graph Application.ReadWrite.OwnedBy
 # and Group.ReadWrite.All, admin-consented — see the plan's Step 0.
 # ---------------------------------------------------------------------------
-
-locals {
-  entra_groups_map = { for g in var.entra_groups : g.key => g }
-}
 
 resource "azuread_group" "this" {
   for_each = local.entra_groups_map
