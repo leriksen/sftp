@@ -50,6 +50,15 @@ variable "storage" {
         key         - Raw SSH public key string.
         description - Label for the key.
 
+    blobs - Fixture files to seed into the containers. Authored here rather
+      than in blobs.tf because the two accounts no longer share a layout:
+      "01" splits inbound/outbound across two containers (one SFTP local user
+      each, the most that design allows), while "02" puts both trees in a
+      single container, which is only possible with named-principal ACEs.
+      container_name - Container to write into.
+      name           - Blob path within the container.
+      content        - Literal file content.
+
     containers - ADLS Gen2 filesystem containers to create.
       container_name - Container name.
       acl            - (optional) List of ACL entries.
@@ -100,6 +109,11 @@ variable "storage" {
         key         = string
         description = string
       })), [])
+    })), [])
+    blobs = optional(list(object({
+      container_name = string
+      name           = string
+      content        = string
     })), [])
     containers = list(object({
       container_name = string

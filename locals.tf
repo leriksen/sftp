@@ -20,10 +20,10 @@ locals {
 
   # ---------------------------------------------------------------------------
   # all_containers: every (storage account, container) pair, keyed
-  # "<sa_key>::<container_name>", for blobs.tf's fixture-blob loops. Keyed by
-  # the pair rather than the container name alone because both accounts use
-  # the same two container names — keying on name would collapse them and
-  # silently give only one account its fixtures.
+  # "<sa_key>::<container_name>", the index for local.container_arm_ids. Keyed
+  # by the pair rather than the container name alone because container names
+  # are only unique within an account — keying on name would collapse two
+  # accounts' same-named containers onto one ARM ID.
   # ---------------------------------------------------------------------------
   all_containers = {
     for pair in flatten([
@@ -38,11 +38,24 @@ locals {
   }
 
   # ---------------------------------------------------------------------------
-  # outbound_containers: the subset of the above named "outbound", for the
-  # outbound-only sample fixtures in blobs.tf.
+  # all_blobs: every fixture blob across every account, keyed
+  # "<sa_key>::<container_name>::<name>". Flattened from each account's own
+  # `blobs` list rather than derived from the container set, because the two
+  # accounts place the same fixtures at different container-relative paths
+  # (account "02" nests both trees under one container).
   # ---------------------------------------------------------------------------
-  outbound_containers = {
-    for k, v in local.all_containers : k => v if v.container_name == "outbound"
+  all_blobs = {
+    for b in flatten([
+      for sa_key, sa in local.storage_map : [
+        for blob in sa.blobs : {
+          key            = "${sa_key}::${blob.container_name}::${blob.name}"
+          sa_key         = sa_key
+          container_name = blob.container_name
+          name           = blob.name
+          content        = blob.content
+        }
+      ]
+    ]) : b.key => b
   }
 
   # ---------------------------------------------------------------------------

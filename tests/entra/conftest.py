@@ -16,7 +16,17 @@ Differs from the local-user suite in tests/ in three structural ways:
 3. There is no home directory -- Microsoft explicitly does not support setting
    one for Entra principals. Every connection lands at the account root and
    must `cd` into a container, so all paths here are container-qualified
-   ("inbound/dev01/..."), unlike the local-user suite's home-relative paths.
+   ("sftp/inbound/dev01/..."), unlike the local-user suite's home-relative
+   paths.
+
+4. Both principals share ONE container. Account "01" needs two (inbound and
+   outbound) because an SFTP local user is authorized through `other::`, which
+   every local user in a container shares -- so isolation there can only be
+   drawn at a container boundary, one user per container. Named group ACEs are
+   per-principal, so account "02" draws the same boundary at a *subtree*
+   inside a single container. That is the claim this suite exists to test, and
+   the reason the deny cases below assert cross-tree rather than
+   cross-container isolation.
 
 The artifact ledger is deliberately separate from tests/.artifacts_*.jsonl:
 that one is swept by tests/sweep_artifacts.py, whose admin client is bound to
@@ -38,13 +48,29 @@ STORAGE_ACCOUNT = os.environ["ENTRA_STORAGE_ACCOUNT"]
 ACCOUNT_URL     = f"https://{STORAGE_ACCOUNT}.dfs.core.windows.net"
 SFTP_HOST       = f"{STORAGE_ACCOUNT}.blob.core.windows.net"
 
-INBOUND_CONTAINER  = "inbound"
-OUTBOUND_CONTAINER = "outbound"
-TREE_DIR           = "dev01"
+# One container holds both principals' trees. The writer and reader each get
+# `--x` on this container root: traverse but not read, so neither can even
+# enumerate the other subtree's *name*, let alone its contents.
+SFTP_CONTAINER = "sftp"
 
-# Container-qualified, because Entra SFTP has no home directory.
-WRITE_TREE = f"{INBOUND_CONTAINER}/{TREE_DIR}"
-READ_TREE  = f"{OUTBOUND_CONTAINER}/{TREE_DIR}"
+WRITE_DIR = "inbound"   # writers' subtree; readers hold no ACE on it
+READ_DIR  = "outbound"  # readers' subtree; writers hold no ACE on it
+TREE_DIR  = "dev01"
+NOTSFTP   = "notsftp"   # neither group holds an ACE anywhere on this
+
+# Container-relative paths, for the DataLake clients (already container-scoped).
+WRITE_TREE_REL = f"{WRITE_DIR}/{TREE_DIR}"
+READ_TREE_REL  = f"{READ_DIR}/{TREE_DIR}"
+
+# Container-qualified paths, for SFTP -- Entra SFTP has no home directory, so
+# sessions land on the account root and every path starts with the container.
+# Absolute (leading "/") deliberately: the SFTP clients are session-scoped, so
+# one chdir in one test would otherwise re-root every relative path in every
+# test after it -- and a deny assertion that fails for the wrong reason still
+# looks green.
+SFTP_ROOT  = f"/{SFTP_CONTAINER}"
+WRITE_TREE = f"{SFTP_ROOT}/{WRITE_TREE_REL}"
+READ_TREE  = f"{SFTP_ROOT}/{READ_TREE_REL}"
 
 _TESTS_DIR  = os.path.dirname(os.path.abspath(__file__))
 CREATED_LOG = os.path.join(_TESTS_DIR, ".artifacts_created.jsonl")
@@ -183,15 +209,19 @@ def _entra_sftp_fixture(client_id_env, secret_env):
 
 @pytest.fixture(scope="session")
 def entra_writer_sftp():
-    """SP in sftp-entra-writers. ACL: inbound/ --x, inbound/dev01 rwx access +
-    -wx default -- the same shape sftpuser0 gets from `other` on account 01."""
+    """SP in sftp-entra-writers. ACL: sftp/ --x, sftp/inbound/ --x,
+    sftp/inbound/dev01 rwx access + -wx default -- the same shape sftpuser0
+    gets from `other` on account 01, but scoped to a named group rather than
+    to the whole container."""
     yield from _entra_sftp_fixture("ENTRA_WRITER_CLIENT_ID", "ENTRA_WRITER_CLIENT_SECRET")
 
 
 @pytest.fixture(scope="session")
 def entra_reader_sftp():
-    """SP in sftp-entra-readers. ACL: outbound/ --x, outbound/dev01 r-x access
-    + default -- the same shape sftpuser1 gets from `other` on account 01."""
+    """SP in sftp-entra-readers. ACL: sftp/ --x, sftp/outbound/ --x,
+    sftp/outbound/dev01 r-x access + default -- the same shape sftpuser1 gets
+    from `other` on account 01, but scoped to a named group rather than to the
+    whole container."""
     yield from _entra_sftp_fixture("ENTRA_READER_CLIENT_ID", "ENTRA_READER_CLIENT_SECRET")
 
 

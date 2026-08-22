@@ -11,14 +11,18 @@ control the two are indistinguishable, which is exactly the ambiguity that made
 the account "01" named-ACE investigation expensive (see project memory
 sftp-acl-named-user-blocked).
 
-These principals hold no RBAC, so every operation here is ACL-decided.
+Both principals share a single container here, so every client below is built
+against the *same* file system and differs only in which group its SP is a
+member of. These principals hold no RBAC, so every operation is ACL-decided.
 """
 import uuid
 
 from conftest import (
-    INBOUND_CONTAINER,
-    OUTBOUND_CONTAINER,
-    TREE_DIR,
+    READ_DIR,
+    READ_TREE_REL,
+    SFTP_CONTAINER,
+    WRITE_DIR,
+    WRITE_TREE_REL,
     _log_created,
     _log_deleted,
     assert_denied,
@@ -28,60 +32,89 @@ from conftest import (
 # ── Reader ───────────────────────────────────────────────────────────────────
 
 def test_reader_can_list_read_tree(entra_reader_client):
-    fs = entra_reader_client.get_file_system_client(OUTBOUND_CONTAINER)
-    names = [p.name for p in fs.get_paths(path=f"{TREE_DIR}/sample", recursive=False)]
-    assert f"{TREE_DIR}/sample/report.csv" in names
+    fs = entra_reader_client.get_file_system_client(SFTP_CONTAINER)
+    names = [p.name for p in fs.get_paths(path=f"{READ_TREE_REL}/sample", recursive=False)]
+    assert f"{READ_TREE_REL}/sample/report.csv" in names
 
 
 def test_reader_can_read_fixture(entra_reader_client):
-    fs = entra_reader_client.get_file_system_client(OUTBOUND_CONTAINER)
-    data = fs.get_file_client(f"{TREE_DIR}/sample/report.csv").download_file().readall()
+    fs = entra_reader_client.get_file_system_client(SFTP_CONTAINER)
+    data = fs.get_file_client(f"{READ_TREE_REL}/sample/report.csv").download_file().readall()
     assert data == b"id,value\n1,42\n2,7\n"
 
 
 def test_reader_cannot_write(entra_reader_client):
-    fs = entra_reader_client.get_file_system_client(OUTBOUND_CONTAINER)
-    fc = fs.get_file_client(f"{TREE_DIR}/sample/entra-reader-denied.txt")
+    fs = entra_reader_client.get_file_system_client(SFTP_CONTAINER)
+    fc = fs.get_file_client(f"{READ_TREE_REL}/sample/entra-reader-denied.txt")
     assert_denied(lambda: fc.upload_data(b"x", overwrite=True))
 
 
 def test_reader_cannot_read_notsftp(entra_reader_client):
-    fs = entra_reader_client.get_file_system_client(OUTBOUND_CONTAINER)
+    fs = entra_reader_client.get_file_system_client(SFTP_CONTAINER)
     fc = fs.get_file_client("notsftp/secret.txt")
     assert_denied(lambda: fc.download_file().readall())
 
 
+def test_reader_cannot_list_container_root(entra_reader_client):
+    """`--x` on the container root is traverse-only, so the reader cannot
+    enumerate it and discover the writer's subtree."""
+    fs = entra_reader_client.get_file_system_client(SFTP_CONTAINER)
+    assert_denied(lambda: list(fs.get_paths(recursive=False)))
+
+
+def test_reader_cannot_list_writer_subtree(entra_reader_client):
+    fs = entra_reader_client.get_file_system_client(SFTP_CONTAINER)
+    assert_denied(lambda: list(fs.get_paths(path=WRITE_DIR, recursive=False)))
+
+
 def test_reader_cannot_list_writer_tree(entra_reader_client):
-    fs = entra_reader_client.get_file_system_client(INBOUND_CONTAINER)
-    assert_denied(lambda: list(fs.get_paths(path=TREE_DIR, recursive=False)))
+    fs = entra_reader_client.get_file_system_client(SFTP_CONTAINER)
+    assert_denied(lambda: list(fs.get_paths(path=WRITE_TREE_REL, recursive=False)))
 
 
 # ── Writer ───────────────────────────────────────────────────────────────────
 
 def test_writer_can_write_to_write_tree(entra_writer_client, admin_client):
-    rel = f"{TREE_DIR}/entra-dataplane-probe-{uuid.uuid4().hex[:8]}.txt"
-    fs = entra_writer_client.get_file_system_client(INBOUND_CONTAINER)
+    rel = f"{WRITE_TREE_REL}/entra-dataplane-probe-{uuid.uuid4().hex[:8]}.txt"
+    fs = entra_writer_client.get_file_system_client(SFTP_CONTAINER)
     fs.get_file_client(rel).upload_data(b"entra dataplane", overwrite=True)
-    _log_created(INBOUND_CONTAINER, "file", rel)
+    _log_created(SFTP_CONTAINER, "file", rel)
 
-    admin_fs = admin_client.get_file_system_client(INBOUND_CONTAINER)
+    admin_fs = admin_client.get_file_system_client(SFTP_CONTAINER)
     assert admin_fs.get_file_client(rel).download_file().readall() == b"entra dataplane"
     admin_fs.get_file_client(rel).delete_file()
-    _log_deleted(INBOUND_CONTAINER, "file", rel)
+    _log_deleted(SFTP_CONTAINER, "file", rel)
 
 
 def test_writer_cannot_read_notsftp(entra_writer_client):
-    fs = entra_writer_client.get_file_system_client(INBOUND_CONTAINER)
+    fs = entra_writer_client.get_file_system_client(SFTP_CONTAINER)
     fc = fs.get_file_client("notsftp/secret.txt")
     assert_denied(lambda: fc.download_file().readall())
 
 
-def test_writer_cannot_read_reader_tree(entra_writer_client):
-    fs = entra_writer_client.get_file_system_client(OUTBOUND_CONTAINER)
-    fc = fs.get_file_client(f"{TREE_DIR}/sample/report.csv")
+def test_writer_cannot_list_container_root(entra_writer_client):
+    fs = entra_writer_client.get_file_system_client(SFTP_CONTAINER)
+    assert_denied(lambda: list(fs.get_paths(recursive=False)))
+
+
+def test_writer_cannot_read_reader_fixture(entra_writer_client):
+    fs = entra_writer_client.get_file_system_client(SFTP_CONTAINER)
+    fc = fs.get_file_client(f"{READ_TREE_REL}/sample/report.csv")
     assert_denied(lambda: fc.download_file().readall())
 
 
+def test_writer_cannot_list_reader_subtree(entra_writer_client):
+    fs = entra_writer_client.get_file_system_client(SFTP_CONTAINER)
+    assert_denied(lambda: list(fs.get_paths(path=READ_DIR, recursive=False)))
+
+
 def test_writer_cannot_list_reader_tree(entra_writer_client):
-    fs = entra_writer_client.get_file_system_client(OUTBOUND_CONTAINER)
-    assert_denied(lambda: list(fs.get_paths(path=TREE_DIR, recursive=False)))
+    fs = entra_writer_client.get_file_system_client(SFTP_CONTAINER)
+    assert_denied(lambda: list(fs.get_paths(path=READ_TREE_REL, recursive=False)))
+
+
+def test_writer_cannot_write_to_reader_tree(entra_writer_client):
+    """Same file system client, same container -- only the ACL differs."""
+    fs = entra_writer_client.get_file_system_client(SFTP_CONTAINER)
+    fc = fs.get_file_client(f"{READ_TREE_REL}/sample/entra-writer-denied.txt")
+    assert_denied(lambda: fc.upload_data(b"x", overwrite=True))

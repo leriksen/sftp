@@ -9,63 +9,21 @@
 # module.adls_filesystem.filesystem_ids returns (the ADLS Gen2 filesystem
 # resource's own .id) — see local.container_arm_ids in locals.tf.
 #
-# Every for_each here is keyed "<sa_key>::<container_name>", so both storage
-# accounts get an identical fixture set: account "01" (SFTP local users) and
-# account "02" (Entra principals) differ only in how access to these same
-# bytes is authorized, which is what makes the two directly comparable.
+# The fixture set is authored per account in variables.auto.tfvars.json rather
+# than hardcoded here, because the two accounts no longer share a container
+# layout: "01" splits inbound/outbound across two containers (the most one
+# SFTP local user per container allows), while "02" puts both trees inside a
+# single container. Same bytes, same relative paths — only the container
+# boundary and the authorization model differ, which is the comparison.
 # ---------------------------------------------------------------------------
 
-resource "azurerm_storage_blob" "notsftp_secret" {
-  for_each = local.all_containers
+resource "azurerm_storage_blob" "fixture" {
+  for_each = local.all_blobs
 
-  name                 = "notsftp/secret.txt"
-  storage_container_id = local.container_arm_ids[each.key]
+  name                 = each.value.name
+  storage_container_id = local.container_arm_ids["${each.value.sa_key}::${each.value.container_name}"]
   type                 = "Block"
-  source_content       = "not for sftp users\n"
-
-  depends_on = [module.adls_filesystem]
-}
-
-resource "azurerm_storage_blob" "notsftp_private_data" {
-  for_each = local.all_containers
-
-  name                 = "notsftp/private/data.txt"
-  storage_container_id = local.container_arm_ids[each.key]
-  type                 = "Block"
-  source_content       = "not for sftp users either\n"
-
-  depends_on = [module.adls_filesystem]
-}
-
-resource "azurerm_storage_blob" "outbound_sample_report" {
-  for_each = local.outbound_containers
-
-  name                 = "dev01/sample/report.csv"
-  storage_container_id = local.container_arm_ids[each.key]
-  type                 = "Block"
-  source_content       = "id,value\n1,42\n2,7\n"
-
-  depends_on = [module.adls_filesystem]
-}
-
-resource "azurerm_storage_blob" "outbound_sample_notes" {
-  for_each = local.outbound_containers
-
-  name                 = "dev01/sample/notes.txt"
-  storage_container_id = local.container_arm_ids[each.key]
-  type                 = "Block"
-  source_content       = "sample outbound fixture data\n"
-
-  depends_on = [module.adls_filesystem]
-}
-
-resource "azurerm_storage_blob" "outbound_sample_nested_extra" {
-  for_each = local.outbound_containers
-
-  name                 = "dev01/sample/nested/extra.txt"
-  storage_container_id = local.container_arm_ids[each.key]
-  type                 = "Block"
-  source_content       = "nested fixture data\n"
+  source_content       = each.value.content
 
   depends_on = [module.adls_filesystem]
 }
