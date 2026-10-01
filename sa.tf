@@ -9,7 +9,7 @@
 # ---------------------------------------------------------------------------
 module "storage_account" {
   source   = "app.terraform.io/leif-lab3/terraform-azurerm-storage-account/azurerm"
-  version  = "0.9.1"
+  version  = "0.10.0"
   for_each = local.storage_map
 
   resource_group_name = var.resource_group_name
