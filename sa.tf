@@ -24,30 +24,35 @@ module "storage_account" {
 # module (github.com/leriksen/terraform-azurerm-adls-filesystem) — sourced from
 # the private registry at app.terraform.io/leif-lab3, same module and version
 # pin the sibling adls project uses. containers/paths are passed straight
-# through from var.storage as data (same as adls's sa.tf) — every ACL block
-# (including the notsftp deny tree and the outbound sample fixtures) is
-# authored directly in variables.auto.tfvars.json, not derived here. Its
-# `acl` blocks map straight onto azurerm_storage_data_lake_gen2_filesystem/_path
-# `ace` blocks. Account "01" uses `type = "other"` with no `id` — the only ACE
-# type an SFTP *local user* can ever be authorized through (named user/group
-# ACEs are rejected for local-user authorization, InvalidNamedUserOrNamedGroup
-# — see project memory sftp_acl_named_user_blocked). Account "02" has no local
-# users and uses `type = "group"` with an `id`, which is the supported path for
-# Entra principals; tfvars writes those as `id_ref` keys and local.resolved_storage
-# substitutes the object IDs entra.tf created.
+# through from var.storage as data (same as adls's sa.tf) — every ACL block is
+# authored directly in variables.auto.tfvars.json, not derived here.
+#
+# Every ACE is `type = "other"` with no `id`: that is the only ACE class an
+# SFTP *local user* can be authorized through (named user/group ACEs are
+# rejected for local-user authorization, InvalidNamedUserOrNamedGroup — see
+# project memory sftp_acl_named_user_blocked).
+#
+# Layout (single container "sftp-test"):
+#   /                        other::--x                 traverse only
+#   dev01                    other::--x                 traverse only
+#   dev01/{inbound,outbound} other::--x                 traverse only
+#   dev01/*/sterling         user::rwx  other::rwx      home dirs
+#                            default:user::rwx default:other::rwx
+# The default entries make every file/dir a user creates under its home
+# inherit rwx, so nested directories work at any depth. user:: matters
+# because Azure makes the uploading local user ("lu-<userId>") the owner.
+#
+# KNOWN, ACCEPTED OVERLAP: other:: is shared by every local user on the
+# account, so both users get rwx on BOTH sterling dirs — each can create,
+# read and delete in the other's home. Local users can't be isolated within
+# one container; isolation needs one container per user, or Entra principals
+# with named ACEs. tests/ asserts the overlap explicitly so it can't be
+# mistaken for isolation.
 #
 # Setting the ACL directly on the azurerm_storage_data_lake_gen2_filesystem
 # resource (via containers[].acl) is what makes the container-root ACL work
 # at all: a separate azurerm_storage_data_lake_gen2_path with path = ""
-# fails with "resource already exists" (the filesystem root always
-# implicitly exists the moment the container does, and that resource's
-# create-only semantics can't adopt it without a manual `terraform import`).
-#
-# ACL SAFETY INVARIANT (see variables.tf): every "other" grant in tfvars is
-# only safe in a container with exactly one SFTP local user. Don't add a
-# second SFTP local user to inbound/outbound without revisiting the ACL data.
-# Account "02" is exempt — named group ACEs are per-principal, so it can carry
-# several mutually-isolated principals in one container.
+# fails with "resource already exists".
 # ---------------------------------------------------------------------------
 
 module "adls_filesystem" {
@@ -56,16 +61,8 @@ module "adls_filesystem" {
   for_each = local.storage_map
 
   storage_account_id = module.storage_account[each.key].id
-  containers         = local.resolved_storage[each.key].containers
-  paths              = local.resolved_storage[each.key].paths
+  containers         = each.value.containers
+  paths              = each.value.paths
 
-  depends_on = [
-    azurerm_role_assignment.tf_executor_blob_owner,
-    azurerm_role_assignment.aad_reader,
-    time_sleep.rbac_wait,
-    # Named group ACEs reference groups by object ID; the membership must
-    # exist before the ACEs land or the first access check after apply can
-    # race the directory.
-    azuread_group_member.this,
-  ]
+  depends_on = [time_sleep.rbac_wait]
 }

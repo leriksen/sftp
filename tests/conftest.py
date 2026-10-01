@@ -13,14 +13,28 @@ STORAGE_ACCOUNT = os.environ["SFTP_STORAGE_ACCOUNT"]
 ACCOUNT_URL     = f"https://{STORAGE_ACCOUNT}.dfs.core.windows.net"
 SFTP_HOST       = f"{STORAGE_ACCOUNT}.blob.core.windows.net"
 
-# Each SFTP local user is homed at <container>/dev01. inbound gets
-# other::-wx on dev01 (write+execute, no read) layered on top of a
-# list-only container permission_scope; outbound gets other::r-x
-# (read+execute, no write). See main.tf for the full ACL scheme, including
-# the notsftp deny tree and the experimental container-root other::---.
-INBOUND_CONTAINER  = "inbound"
-OUTBOUND_CONTAINER = "outbound"
-HOME_DIR            = "dev01"
+# One container. Each SFTP local user is homed at a "sterling" dir under
+# dev01/{inbound,outbound}; every directory above the homes is other::--x
+# (traverse only), the homes are other::rwx + user::rwx with matching
+# default entries. See sa.tf for the full ACL scheme -- including why the two
+# users are NOT isolated from each other (other:: is shared by every local
+# user), which test_sftp_overlap.py asserts explicitly.
+CONTAINER     = "sftp-test"
+INBOUND_HOME  = "dev01/inbound/sterling"
+OUTBOUND_HOME = "dev01/outbound/sterling"
+
+# Container-relative paths of every directory above the homes ("" is the
+# container root). Neither user may list, read or create anything in these.
+TRAVERSE_ONLY_DIRS = ["", "dev01", "dev01/inbound", "dev01/outbound"]
+
+
+def sftp_path(rel):
+    """Absolute SFTP path for a container-relative path. A local user's SFTP
+    root "/" is its home *container*, not the account (the server reports
+    the inbound home as /dev01/inbound/sterling), so no container prefix.
+    Session-scoped clients must only ever be given absolute paths: one chdir
+    would silently re-root every relative path in every later test."""
+    return f"/{rel}"
 
 # Durable ledger of artifacts the test harness itself creates, so the
 # safety-net sweep (sweep_leftover_artifacts, below) can delete exactly
@@ -188,48 +202,21 @@ def _client(client_id, client_secret):
 @pytest.fixture(scope="session")
 def admin_client():
     """Terraform executor SP -- has Storage Blob Data Owner
-    (azurerm_role_assignment.tf_executor_blob_owner in main.tf)."""
+    (azurerm_role_assignment.tf_executor_blob_owner in rbac.tf)."""
     return _client(
         os.environ["ARM_CLIENT_ID"],
         os.environ["ARM_CLIENT_SECRET"],
     )
 
 
-@pytest.fixture(scope="session")
-def aad_reader_client():
-    """Client-credential SP standing in for the ADLS_Reader AAD group
-    (azurerm_role_assignment.aad_reader in main.tf), reused from the
-    sibling adls project."""
-    return _client(
-        os.environ["AAD_READER_CLIENT_ID"],
-        os.environ["AAD_READER_CLIENT_SECRET"],
-    )
-
-
-@pytest.fixture(scope="session")
-def aad_writer_client():
-    """Client-credential SP standing in for the ADLS_Write AAD group
-    (azurerm_role_assignment.aad_writer in main.tf), reused from the
-    sibling adls project. Verified empirically before the role assignment
-    was added: this SP had zero access (403 AuthorizationPermissionMismatch)
-    against this storage account."""
-    return _client(
-        os.environ["AAD_WRITER_CLIENT_ID"],
-        os.environ["AAD_WRITER_CLIENT_SECRET"],
-    )
-
-
-def assert_denied(fn):
-    with pytest.raises(HttpResponseError) as exc_info:
-        fn()
-    assert exc_info.value.status_code == 403, (
-        f"Expected 403, got {exc_info.value.status_code}"
-    )
-
-
 def assert_sftp_denied(fn):
-    with pytest.raises(OSError):
+    """The operation must fail for lack of permission. A not-found error
+    doesn't count: a wrong path would otherwise pass every deny test."""
+    with pytest.raises(OSError) as exc_info:
         fn()
+    assert not isinstance(exc_info.value, FileNotFoundError), (
+        f"failed with not-found, not a permission denial: {exc_info.value}"
+    )
 
 
 def _sftp_connect(username, key_file):
@@ -240,29 +227,55 @@ def _sftp_connect(username, key_file):
     return ssh.open_sftp(), ssh
 
 
-@pytest.fixture(scope="session")
-def sftp_inbound_client():
-    # Local user is literally named "sftpuser0" (terraform-azurerm-sftp-local-users
-    # names by sequence_number, not a custom string) -- inbound/outbound is
-    # carried by home_directory, not the login name. See main.tf/variables.tf.
-    sftp, ssh = _sftp_connect(
-        f"{STORAGE_ACCOUNT}.sftpuser0",
-        os.environ["SFTP_INBOUND_KEY_FILE"],
-    )
-    yield sftp
+# Local users are literally named "sftpuser<sequence_number>"
+# (terraform-azurerm-sftp-local-users names by sequence_number, not a custom
+# string) -- inbound/outbound is carried by home_directory, not the login
+# name. See sftp.tf/variables.tf.
+USERS = {
+    "inbound":  {"login": "sftpuser0", "key_env": "SFTP_INBOUND_KEY_FILE",  "home": INBOUND_HOME,  "other_home": OUTBOUND_HOME},
+    "outbound": {"login": "sftpuser1", "key_env": "SFTP_OUTBOUND_KEY_FILE", "home": OUTBOUND_HOME, "other_home": INBOUND_HOME},
+}
+
+
+def _connect_user(name):
+    u = USERS[name]
+    return _sftp_connect(f"{STORAGE_ACCOUNT}.{u['login']}", os.environ[u["key_env"]])
+
+
+class SftpUser:
+    def __init__(self, name, client):
+        self.name       = name
+        self.client     = client
+        self.home       = USERS[name]["home"]        # container-relative
+        self.other_home = USERS[name]["other_home"]  # container-relative
+
+
+@pytest.fixture(scope="session", params=list(USERS))
+def user(request):
+    """Session-scoped connection for each local user in turn. Absolute paths
+    only (see sftp_path) -- never chdir on this client."""
+    sftp, ssh = _connect_user(request.param)
+    yield SftpUser(request.param, sftp)
     sftp.close()
     ssh.close()
 
 
-@pytest.fixture(scope="session")
-def sftp_outbound_client():
-    sftp, ssh = _sftp_connect(
-        f"{STORAGE_ACCOUNT}.sftpuser1",
-        os.environ["SFTP_OUTBOUND_KEY_FILE"],
-    )
-    yield sftp
-    sftp.close()
-    ssh.close()
+@pytest.fixture
+def fresh_sftp():
+    """Factory for a brand-new connection that lands in the user's home dir,
+    for tests that chdir or use relative paths. Closed after the test, so
+    the cwd can't leak into any other test."""
+    opened = []
+
+    def _open(name):
+        sftp, ssh = _connect_user(name)
+        opened.append((sftp, ssh))
+        return sftp
+
+    yield _open
+    for sftp, ssh in opened:
+        sftp.close()
+        ssh.close()
 
 
 class _TrackedCreations(list):
@@ -288,10 +301,13 @@ def container_cleanup(admin_client):
     yield created
     for kind, path, container in reversed(created):
         fs = admin_client.get_file_system_client(container)
-        if kind == "file":
-            fs.get_file_client(path).delete_file()
-        else:
-            fs.get_directory_client(path).delete_directory()
+        try:
+            if kind == "file":
+                fs.get_file_client(path).delete_file()
+            else:
+                fs.get_directory_client(path).delete_directory()
+        except ResourceNotFoundError:
+            pass  # the test deleted it itself over SFTP
         _log_deleted(container, kind, path)
 
 
@@ -306,12 +322,9 @@ def sweep_leftover_artifacts(admin_client):
     directory's delete cascading to remove a leftover child first;
     already-gone descendants are ignored. Resets both logs once reconciled.
 
-    Not a pytest fixture -- run_aad_tests.sh and run_sftp_tests.sh execute
-    as separate, concurrently-running pytest sessions under run_tests.sh, so
-    a session-scoped autouse fixture here would race: the faster session's
-    teardown could sweep away artifacts the slower session still has
-    in-flight. Call this only via sweep_artifacts.py, once both sessions
-    have fully finished (see run_tests.sh).
+    Not a pytest fixture: it must only run once every pytest session
+    touching this account has finished, so it is invoked via
+    sweep_artifacts.py at the end of run_sftp_tests.sh.
     """
     created = _read_log(CREATED_LOG)
     deleted_keys = {(e["container"], e["kind"], e["path"]) for e in _read_log(DELETED_LOG)}
@@ -334,38 +347,30 @@ def sweep_leftover_artifacts(admin_client):
 
 
 @pytest.fixture(scope="session")
-def sftp_inbound_artifacts(sftp_inbound_client, admin_client):
-    """inbound user creates a scratch dir + seed file via SFTP; admin removes
-    exactly those. putfo(..., confirm=False): the inbound ACL grants
-    write+execute but not read, and putfo's default post-upload stat needs
-    read."""
-    run_id  = uuid.uuid4().hex[:8]
-    scratch = f"test-sftp-{run_id}"
-    seed    = f"{scratch}/seed.txt"
-
-    sftp_inbound_client.mkdir(scratch)
-    _log_created(INBOUND_CONTAINER, "dir", f"{HOME_DIR}/{scratch}")
-    sftp_inbound_client.putfo(io.BytesIO(b"hello from inbound"), seed, confirm=False)
-    _log_created(INBOUND_CONTAINER, "file", f"{HOME_DIR}/{seed}")
-
-    yield {"scratch_dir": scratch, "seed_file": seed}
-
-    fs = admin_client.get_file_system_client(INBOUND_CONTAINER)
-    fs.get_file_client(f"{HOME_DIR}/{seed}").delete_file()
-    _log_deleted(INBOUND_CONTAINER, "file", f"{HOME_DIR}/{seed}")
-    fs.get_directory_client(f"{HOME_DIR}/{scratch}").delete_directory()
-    _log_deleted(INBOUND_CONTAINER, "dir", f"{HOME_DIR}/{scratch}")
+def admin_seed(admin_client):
+    """Admin places one file in each traverse-only dir, so the "cannot read"
+    tests target a file that demonstrably exists -- a denial on a missing
+    path would pass for the wrong reason. Removed again at session end."""
+    run_id = uuid.uuid4().hex[:8]
+    fs = admin_client.get_file_system_client(CONTAINER)
+    seeded = {}
+    for d in TRAVERSE_ONLY_DIRS:
+        rel = f"{d}/admin-seed-{run_id}.txt" if d else f"admin-seed-{run_id}.txt"
+        fs.get_file_client(rel).upload_data(b"admin only", overwrite=True)
+        _log_created(CONTAINER, "file", rel)
+        seeded[d] = rel
+    yield seeded
+    for rel in seeded.values():
+        fs.get_file_client(rel).delete_file()
+        _log_deleted(CONTAINER, "file", rel)
 
 
 def pytest_collection_modifyitems(items):
+    order = ["test_sftp_home", "test_sftp_traverse_only", "test_sftp_overlap"]
+
     def sort_key(item):
-        if "test_sftp_inbound" in item.nodeid:
-            return 0
-        if "test_sftp_outbound" in item.nodeid:
-            return 1
-        if "test_notsftp_denied" in item.nodeid:
-            return 2
-        if "test_aad_rbac" in item.nodeid:
-            return 3
-        return 4
+        for i, name in enumerate(order):
+            if name in item.nodeid:
+                return i
+        return len(order)
     items.sort(key=sort_key)

@@ -8,7 +8,7 @@ terraform.tfstate
 terraform.tfstate.*
 tfplan*
 
-# Credentials read by env-dev.sh / env-test.sh / env-entra.sh
+# Credentials read by env-dev.sh / env-test.sh
 .client_id_*
 .key_*
 .subscription_id

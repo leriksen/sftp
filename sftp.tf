@@ -11,10 +11,10 @@
 # connection succeeds as long as the user has ACL permission to their home
 # directory ("the local user must have at least one container permission OR
 # ACL permission to the home directory ... otherwise the connection
-# fails") — which module.adls_filesystem's dev01 ACL provides. Any
-# container-level grant (even just List) applies account-wide across the
-# whole container and would bypass the notsftp deny ACL entirely, per the
-# live-test finding above.
+# fails") — which the sterling home dirs' ACLs in module.adls_filesystem
+# provide. Any container-level grant (even just List) applies account-wide
+# across the whole container and would bypass the traverse-only (--x) ACLs
+# on /, dev01 and dev01/{inbound,outbound}.
 #
 # local.sftp_configs values already match this module's `sftp_users` argument
 # shape one-to-one (unlike adls, which reads SSH keys from disk via file() —

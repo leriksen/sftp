@@ -26,7 +26,7 @@ pip install -q -r "$REPO_ROOT/tests/requirements.txt"
 REPORT="$REPO_ROOT/tests/report_sftp.md"
 
 PYTEST_EXIT=0
-pytest "$REPO_ROOT/tests/test_sftp_inbound.py" "$REPO_ROOT/tests/test_sftp_outbound.py" "$REPO_ROOT/tests/test_notsftp_denied.py" -v --color="$COLOR" \
+pytest "$REPO_ROOT/tests/test_sftp_home.py" "$REPO_ROOT/tests/test_sftp_traverse_only.py" "$REPO_ROOT/tests/test_sftp_overlap.py" -v --color="$COLOR" \
   --md-report \
   --md-report-output="$REPORT" \
   --md-report-verbose=1 \
@@ -35,9 +35,9 @@ pytest "$REPO_ROOT/tests/test_sftp_inbound.py" "$REPO_ROOT/tests/test_sftp_outbo
 
 cat "$REPORT"
 
-# --sweep=no when run under run_tests.sh: the AAD and SFTP suites run
-# concurrently there, and sweeping here could delete the sibling suite's
-# still-in-flight artifacts (see conftest.sweep_leftover_artifacts).
+# --sweep=no skips the leftover-artifact sweep (see
+# conftest.sweep_leftover_artifacts) when another pytest session is still
+# using the account.
 if [[ "$SWEEP" == "yes" ]]; then
   python3 "$REPO_ROOT/tests/sweep_artifacts.py"
 fi

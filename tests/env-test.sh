@@ -10,18 +10,11 @@ _REPO_ROOT="$(cd "${_TESTS_DIR}/.." && pwd)"
 
 export AZURE_TENANT_ID="$(cat "${_REPO_ROOT}/.tenant_id")"
 
-export AAD_READER_CLIENT_ID="$(cat "${_TESTS_DIR}/.aad_reader_client_id")"
-export AAD_READER_CLIENT_SECRET="$(cat "${_TESTS_DIR}/.aad_reader_client_secret")"
-
-export AAD_WRITER_CLIENT_ID="$(cat "${_TESTS_DIR}/.aad_writer_client_id")"
-export AAD_WRITER_CLIENT_SECRET="$(cat "${_TESTS_DIR}/.aad_writer_client_secret")"
-
 # Discovered from Terraform state rather than hardcoded, so a rename/recreate
 # of the storage account (name is ForceNew, see modules/storage-account/main.tf)
 # can't leave the tests silently pointed at a stale account.
 #
-# storage_account_ids is keyed by sequence_no: "01" is this suite's local-user
-# account. ("02" is the Entra-auth account -- see tests/entra/env-entra.sh.)
+# storage_account_ids is keyed by sequence_no; "01" is the only account.
 _SA_ID="$(terraform -chdir="${_REPO_ROOT}" output -json storage_account_ids | jq -er '."01"')"
 export SFTP_STORAGE_ACCOUNT="${_SA_ID##*/}"
 
