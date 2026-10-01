@@ -2,7 +2,7 @@
 
 variable "resource_group_name" {
   type        = string
-  description = "Resource group the storage account lives in. Not created by this stack — must already exist."
+  description = "Resource group the storage account lives in. Created by this stack (rg.tf)."
 }
 
 variable "location" {

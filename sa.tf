@@ -12,8 +12,8 @@ module "storage_account" {
   version  = "0.10.0"
   for_each = local.storage_map
 
-  resource_group_name = var.resource_group_name
-  location            = var.location
+  resource_group_name = azurerm_resource_group.this.name
+  location            = azurerm_resource_group.this.location
   sequence_no         = each.key
   sftp_enabled        = each.value.sftp_enabled
   local_user_enabled  = each.value.local_user_enabled
