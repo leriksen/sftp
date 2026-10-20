@@ -17,4 +17,11 @@ locals {
     for sa in var.storage : sa.sequence_no => sa.sftp_users
     if sa.sftp_enabled && length(sa.sftp_users) > 0
   }
+
+  # ---------------------------------------------------------------------------
+  # entra_principals_map: var.entra_principals list → map keyed by the
+  # caller-supplied `key`, the for_each index every azuread_* resource in
+  # entra.tf and azurerm_role_assignment.entra in rbac.tf share.
+  # ---------------------------------------------------------------------------
+  entra_principals_map = { for p in var.entra_principals : p.key => p }
 }

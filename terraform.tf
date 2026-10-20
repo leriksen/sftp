@@ -11,6 +11,11 @@ terraform {
       version = "~>2.0"
     }
 
+    azuread = {
+      source  = "hashicorp/azuread"
+      version = "~>3.9"
+    }
+
     time = {
       source  = "hashicorp/time"
       version = "~>0.9"
@@ -23,8 +28,9 @@ terraform {
   }
 
   # State lives in TFC rather than a local file: a local backend gives state
-  # no encryption at rest, no access control and no audit trail (it once held
-  # Entra service-principal secrets in cleartext).
+  # no encryption at rest, no access control and no audit trail -- and state
+  # holds the azuread_application_password values for the Entra test
+  # principals in entra.tf in cleartext.
   #
   # prefix + TF_WORKSPACE=dev resolves to the "sftp-dev" workspace, matching
   # the sibling adls project's adls-dev. That workspace runs in *remote*

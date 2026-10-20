@@ -103,3 +103,27 @@ variable "storage" {
     }))
   }))
 }
+
+# ── Optional ────────────────────────────────────────────────────────────────
+
+variable "entra_principals" {
+  description = <<-EOT
+    Entra applications + service principals to create (entra.tf), each
+    granted one data-plane role on one container (rbac.tf). Container-scoped
+    roles give no access to any other container. No ACL entry names them.
+
+    key           - Stable identifier; also the key in the entra_sp_* outputs.
+    display_name  - Display name of the application / service principal.
+    sequence_no   - Storage account (var.storage[].sequence_no) holding the container.
+    container     - Container the role is scoped to.
+    role          - Built-in data-plane role, e.g. "Storage Blob Data Reader".
+  EOT
+  type = list(object({
+    key          = string
+    display_name = string
+    sequence_no  = string
+    container    = string
+    role         = string
+  }))
+  default = []
+}

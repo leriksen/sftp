@@ -3,7 +3,7 @@ export TF_VAR_env="${env}"
 
 # The remote backend uses a "sftp-" workspace prefix, so every terraform
 # command needs a workspace selected; without it they fail with "default
-# workspace not supported". tests/env-test.sh and tests/entra/env-entra.sh both
+# workspace not supported". tests/env-test.sh, tests/entra/env-entra.sh and setup_creds.sh
 # shell out to `terraform output`, so this has to be set for them too.
 export TF_WORKSPACE="${env}"
 

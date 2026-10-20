@@ -49,6 +49,11 @@ module "storage_account" {
 # with named ACEs. tests/ asserts the overlap explicitly so it can't be
 # mistaken for isolation.
 #
+# Account "02" (Entra ID, no local users) uses no ACL grants at all: its two
+# service principals are authorized by container-scoped RBAC (rbac.tf). The
+# container ACLs are just the owner/group defaults with other::--- spelled
+# out, so the ACL can't grant either principal anything the role doesn't.
+#
 # Setting the ACL directly on the azurerm_storage_data_lake_gen2_filesystem
 # resource (via containers[].acl) is what makes the container-root ACL work
 # at all: a separate azurerm_storage_data_lake_gen2_path with path = ""
